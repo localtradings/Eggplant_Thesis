@@ -1,0 +1,25 @@
+name: EggplantDetector
+options:
+  bundleIdPrefix: com.example
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    IPHONEOS_DEPLOYMENT_TARGET: 15.0
+targets:
+  EggplantDetector:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: EggplantDetector
+    resources:
+      - path: EggplantDetector/Resources
+      - path: EggplantDetector/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.eggplantdetector
+        INFOPLIST_FILE: EggplantDetector/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""

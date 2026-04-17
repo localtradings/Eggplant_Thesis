@@ -1,0 +1,12 @@
+.gradle/
+.idea/
+.vscode/
+build/
+app/build/
+ios/Pods/
+ios/*.xcworkspace/
+ios/*.xcodeproj/
+*.iml
+local.properties
+Thumbs.db
+Desktop.ini

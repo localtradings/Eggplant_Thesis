@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Eggplant Detector</string>
+    <string name="field_pilot">Eggplant Detector</string>
+    <string name="confidence_template">Confidence: %.1f%%</string>
+    <string name="live_mode">Live</string>
+    <string name="photo_mode">Photo</string>
+    <string name="live_mode_title">Live</string>
+    <string name="photo_mode_title">Photo</string>
+    <string name="guidance_title">Capture guidance</string>
+    <string name="uncertain_title">Diagnosis uncertain</string>
+    <string name="uncertain_subtitle">The model is not confident enough to name one disease.</string>
+    <string name="contract_summary">Center crop to a square, resize to the model input, convert to RGB, and apply confidence thresholds before naming a disease.</string>
+    <string name="live_mode_helper">Center one leaf. Live scan updates softly.</string>
+    <string name="photo_mode_helper">Freeze one frame for a steadier read.</string>
+    <string name="photo_frozen_helper">Review the frozen frame or retake.</string>
+    <string name="capture_diagnosis">Capture</string>
+    <string name="retake_photo">Retake</string>
+    <string name="capture_photo_title">Capture a photo to diagnose</string>
+    <string name="capture_photo_body">Freeze one frame for a steadier read.</string>
+    <string name="no_leaf_title">No leaf detected yet</string>
+    <string name="no_leaf_body">Point the camera at a clear eggplant leaf.</string>
+    <string name="frame_single_leaf_title">Frame one leaf more clearly</string>
+    <string name="frame_single_leaf_body">Move closer and keep one leaf centered.</string>
+    <string name="increase_light_title">Increase lighting</string>
+    <string name="increase_light_body">Try brighter, more even lighting.</string>
+    <string name="reduce_glare_title">Reduce glare</string>
+    <string name="reduce_glare_body">Step away from glare and try again.</string>
+    <string name="low_confidence_title">Retake for a stronger signal</string>
+    <string name="low_confidence_body">Capture a sharper, closer view.</string>
+    <string name="ambiguous_title">Possible label conflict</string>
+    <string name="ambiguous_body">The top labels are too close. Retake first.</string>
+    <string name="captured_frame">Captured diagnosis frame</string>
+    <string name="analyzing_photo">Analyzing the captured frame…</string>
+</resources>

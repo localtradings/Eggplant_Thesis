@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="surface">#08120E</color>
+    <color name="overlay">#CC0F1F18</color>
+    <color name="overlayStroke">#3349A06D</color>
+    <color name="primaryText">#FFF7F1E8</color>
+    <color name="secondaryText">#FFD7D2C7</color>
+    <color name="seed">#4DAA57</color>
+</resources>
