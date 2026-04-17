@@ -81,4 +81,36 @@ class PlantTargetingTest {
         assertTrue(viewRect.right <= analysisSquare.right)
         assertTrue(viewRect.bottom <= analysisSquare.bottom)
     }
+
+    @Test
+    fun selectedCropMapsInsideCenteredSquareAnalysisRegion() {
+        val selection = NormalizedRect.fromCenter(0.5f, 0.5f, 0.28f, 0.28f)
+
+        val pixelRect = SelectedTargetCropper.pixelRectFor(selection, imageWidth = 720, imageHeight = 1280)
+        val analysisSquare = SelectedTargetCropper.analysisSquareRect(720, 1280)
+
+        assertTrue(pixelRect.left >= analysisSquare.left)
+        assertTrue(pixelRect.top >= analysisSquare.top)
+        assertTrue(pixelRect.right <= analysisSquare.right)
+        assertTrue(pixelRect.bottom <= analysisSquare.bottom)
+    }
+
+    @Test
+    fun selectedCropClampsSafelyNearEdges() {
+        val topLeft = NormalizedRect.fromCenter(0f, 0f, 0.28f, 0.28f)
+        val bottomRight = NormalizedRect.fromCenter(1f, 1f, 0.28f, 0.28f)
+
+        val topLeftRect = SelectedTargetCropper.pixelRectFor(topLeft, imageWidth = 720, imageHeight = 1280)
+        val bottomRightRect = SelectedTargetCropper.pixelRectFor(bottomRight, imageWidth = 720, imageHeight = 1280)
+
+        assertEquals(0, topLeftRect.left)
+        assertEquals(280, topLeftRect.top)
+        assertTrue(topLeftRect.width() > 0)
+        assertTrue(topLeftRect.height() > 0)
+
+        assertEquals(720, bottomRightRect.right)
+        assertEquals(1000, bottomRightRect.bottom)
+        assertTrue(bottomRightRect.left > topLeftRect.left)
+        assertTrue(bottomRightRect.top > topLeftRect.top)
+    }
 }

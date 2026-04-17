@@ -1,9 +1,11 @@
 package com.example.eggplantdetector
 
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.graphics.RectF
 import java.util.UUID
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 object TargetSelectionContract {
     const val isPhase1ManualTargetingEnabled = true
@@ -171,6 +173,37 @@ object PreviewTargetMapper {
             square.top + (box.top * square.height()),
             square.left + (box.right * square.width()),
             square.top + (box.bottom * square.height())
+        )
+    }
+}
+
+object SelectedTargetCropper {
+    fun analysisSquareRect(imageWidth: Int, imageHeight: Int): Rect {
+        val size = min(imageWidth, imageHeight)
+        val left = (imageWidth - size) / 2
+        val top = (imageHeight - size) / 2
+        return Rect(left, top, left + size, top + size)
+    }
+
+    fun pixelRectFor(box: NormalizedRect, imageWidth: Int, imageHeight: Int): Rect {
+        val square = analysisSquareRect(imageWidth, imageHeight)
+        val squareWidth = square.width().toFloat()
+        val squareHeight = square.height().toFloat()
+        val left = (square.left + (box.left * squareWidth)).roundToInt().coerceIn(0, imageWidth - 1)
+        val top = (square.top + (box.top * squareHeight)).roundToInt().coerceIn(0, imageHeight - 1)
+        val right = (square.left + (box.right * squareWidth)).roundToInt().coerceIn(left + 1, imageWidth)
+        val bottom = (square.top + (box.bottom * squareHeight)).roundToInt().coerceIn(top + 1, imageHeight)
+        return Rect(left, top, right, bottom)
+    }
+
+    fun cropBitmap(bitmap: Bitmap, box: NormalizedRect): Bitmap {
+        val pixelRect = pixelRectFor(box, bitmap.width, bitmap.height)
+        return Bitmap.createBitmap(
+            bitmap,
+            pixelRect.left,
+            pixelRect.top,
+            pixelRect.width(),
+            pixelRect.height()
         )
     }
 }

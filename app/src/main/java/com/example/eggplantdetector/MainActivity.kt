@@ -83,10 +83,10 @@ class MainActivity : AppCompatActivity() {
         binding.captureButton.setOnClickListener { capturePhotoDiagnosis() }
         if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
             binding.retakeButton.setOnClickListener {
+                resetPhotoCapture(clearState = false)
                 selectedTargetController.resetTarget(TargetLossReason.RESET)
                 renderTargetState(selectedTargetController.state)
             }
-            binding.captureButton.isVisible = false
             binding.retakeButton.text = getString(R.string.reset_target)
             binding.targetOverlayView.setOnTouchListener { _, event ->
                 if (event.actionMasked == MotionEvent.ACTION_UP) {
@@ -206,8 +206,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun capturePhotoDiagnosis() {
-        if (TargetSelectionContract.isPhase1ManualTargetingEnabled) return
         if (captureMode != CaptureMode.PHOTO) return
+        if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+            val selectedTarget = selectedTargetOrNull()
+            val bitmap = latestPreviewBitmap
+            if (selectedTarget == null || bitmap == null) {
+                renderTargetState(selectedTargetController.state)
+                return
+            }
+
+            val frozenBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            isFrozen = true
+            binding.capturedFrameView.setImageBitmap(frozenBitmap)
+            binding.capturedFrameView.isVisible = true
+            binding.captureButton.isVisible = false
+            binding.retakeButton.isVisible = true
+            binding.actionRow.isVisible = true
+            binding.modeHelper.text = getString(R.string.analyzing_selected_target)
+
+            cameraExecutor.execute {
+                val selectedCrop = cropSelectedTarget(frozenBitmap, selectedTarget.box)
+                val assessment = assessFrame(selectedCrop)
+                latestFrameAssessment = assessment
+                // Future treatment hook: attach post-diagnosis treatment guidance after the selected-target diagnosis result is finalized.
+                val state = DiagnosisRules.photoDiagnosis(assessment, classifier.classify(selectedCrop))
+                logDiagnosis(state, assessment, CaptureMode.PHOTO)
+                runOnUiThread { renderState(state) }
+            }
+            return
+        }
         val bitmap = latestPreviewBitmap
         val assessment = latestFrameAssessment
         if (bitmap == null || assessment == null) {
@@ -235,10 +262,20 @@ class MainActivity : AppCompatActivity() {
         binding.capturedFrameView.setImageDrawable(null)
         binding.capturedFrameView.isVisible = false
         if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
-            binding.captureButton.isVisible = false
-            binding.retakeButton.isVisible =
-                selectedTargetController.state is SelectedTargetState.Selected
-            binding.actionRow.isVisible = binding.retakeButton.isVisible
+            when (selectedTargetController.state) {
+                SelectedTargetState.None,
+                is SelectedTargetState.Lost -> {
+                    binding.captureButton.isVisible = false
+                    binding.retakeButton.isVisible = false
+                    binding.actionRow.isVisible = false
+                }
+
+                is SelectedTargetState.Selected -> {
+                    binding.captureButton.isVisible = captureMode == CaptureMode.PHOTO
+                    binding.retakeButton.isVisible = true
+                    binding.actionRow.isVisible = true
+                }
+            }
             if (clearState) {
                 renderTargetState(selectedTargetController.state)
             }
@@ -313,13 +350,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderState(state: DiagnosisState) {
-        binding.modeHelper.text = when {
-            captureMode == CaptureMode.LIVE -> getString(R.string.live_mode_helper)
-            isFrozen -> getString(R.string.photo_frozen_helper)
-            else -> getString(R.string.photo_mode_helper)
+        if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+            if (selectedTargetOrNull() == null) {
+                renderTargetState(selectedTargetController.state)
+                return
+            }
+            binding.modeHelper.text = when (captureMode) {
+                CaptureMode.LIVE -> getString(R.string.analyzing_selected_target)
+                CaptureMode.PHOTO -> if (isFrozen) {
+                    getString(R.string.selected_target_photo_ready)
+                } else {
+                    getString(R.string.selected_target_photo_prompt)
+                }
+            }
+            binding.captureButton.isVisible = captureMode == CaptureMode.PHOTO && !isFrozen
+            binding.retakeButton.isVisible = true
+            binding.actionRow.isVisible = true
+        } else {
+            binding.modeHelper.text = when {
+                captureMode == CaptureMode.LIVE -> getString(R.string.live_mode_helper)
+                isFrozen -> getString(R.string.photo_frozen_helper)
+                else -> getString(R.string.photo_mode_helper)
+            }
+            binding.captureButton.isVisible = captureMode == CaptureMode.PHOTO && !isFrozen
+            binding.retakeButton.isVisible = captureMode == CaptureMode.PHOTO && isFrozen
         }
-        binding.captureButton.isVisible = captureMode == CaptureMode.PHOTO && !isFrozen
-        binding.retakeButton.isVisible = captureMode == CaptureMode.PHOTO && isFrozen
 
         when (state) {
             is DiagnosisState.Confirmed -> {
@@ -358,6 +413,7 @@ class MainActivity : AppCompatActivity() {
     private fun handlePreviewTap(x: Float, y: Float) {
         if (!TargetSelectionContract.isPhase1ManualTargetingEnabled) return
         if (binding.targetOverlayView.width == 0 || binding.targetOverlayView.height == 0) return
+        resetPhotoCapture(clearState = false)
         val selectedBox = PreviewTargetMapper.manualSelectionForTap(
             tapX = x,
             tapY = y,
@@ -369,7 +425,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleManualTargetingFrame(bitmap: Bitmap) {
-        // Phase 1 bypass: keep the camera stream alive while the existing diagnosis pipeline stays intact below.
         // Future eggplant detector hook: replace PlaceholderPlantDetector with a real detector that returns plant boxes.
         val candidatePlants = plantDetector.detectCandidates(bitmap)
         // Future tracking hook: replace ManualLockPlantTracker with a real tracker that updates the selected target.
@@ -378,35 +433,82 @@ class MainActivity : AppCompatActivity() {
             selectedTargetController.applyTrackedState(updatedState)
             runOnUiThread { renderTargetState(selectedTargetController.state) }
         }
+
+        when (val targetState = selectedTargetController.state) {
+            SelectedTargetState.None,
+            is SelectedTargetState.Lost -> return
+
+            is SelectedTargetState.Selected -> {
+                when (captureMode) {
+                    CaptureMode.LIVE -> {
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastAnalysisTimestampMs < ModelContract.liveInferenceIntervalMs) return
+                        lastAnalysisTimestampMs = now
+
+                        // Selected-target crop happens here so the existing classifier and diagnosis rules receive only the manual target region.
+                        val selectedCrop = cropSelectedTarget(bitmap, targetState.target.box)
+                        val assessment = assessFrame(selectedCrop)
+                        latestFrameAssessment = assessment
+                        // Future treatment hook: attach post-diagnosis treatment guidance after the selected-target diagnosis result is finalized.
+                        val state = DiagnosisRules.liveDiagnosis(assessment, classifier.classify(selectedCrop))
+                        logDiagnosis(state, assessment, CaptureMode.LIVE)
+                        runOnUiThread { renderState(state) }
+                    }
+
+                    CaptureMode.PHOTO -> {
+                        return
+                    }
+                }
+            }
+        }
     }
 
     private fun renderTargetState(state: SelectedTargetState) {
         binding.targetOverlayView.targetState = state
         binding.resultTitle.text = getString(R.string.target_selection_title)
         binding.resultDetails.text = getString(R.string.target_selection_detail)
-        binding.captureButton.isVisible = false
-        binding.retakeButton.isVisible = state is SelectedTargetState.Selected
-        binding.actionRow.isVisible = binding.retakeButton.isVisible
 
         when (state) {
             SelectedTargetState.None -> {
                 binding.modeHelper.text = getString(R.string.target_none_title)
                 binding.resultLabel.text = getString(R.string.target_none_title)
                 binding.resultScore.text = getString(R.string.target_none_body)
+                binding.captureButton.isVisible = false
+                binding.retakeButton.isVisible = false
+                binding.actionRow.isVisible = false
             }
 
             is SelectedTargetState.Selected -> {
-                binding.modeHelper.text = getString(R.string.target_selected_title)
+                val helperText = if (captureMode == CaptureMode.LIVE) {
+                    getString(R.string.analyzing_selected_target)
+                } else {
+                    getString(R.string.selected_target_photo_prompt)
+                }
+                binding.modeHelper.text = helperText
                 binding.resultLabel.text = getString(R.string.target_selected_title)
-                binding.resultScore.text = getString(R.string.target_selected_body)
+                binding.resultScore.text = helperText
+                binding.captureButton.isVisible = captureMode == CaptureMode.PHOTO && !isFrozen
+                binding.retakeButton.isVisible = true
+                binding.actionRow.isVisible = true
             }
 
             is SelectedTargetState.Lost -> {
                 binding.modeHelper.text = getString(R.string.target_lost_title)
                 binding.resultLabel.text = getString(R.string.target_lost_title)
                 binding.resultScore.text = getString(R.string.target_lost_body)
+                binding.captureButton.isVisible = false
+                binding.retakeButton.isVisible = false
+                binding.actionRow.isVisible = false
             }
         }
+    }
+
+    private fun selectedTargetOrNull(): SelectedPlantTarget? {
+        return (selectedTargetController.state as? SelectedTargetState.Selected)?.target
+    }
+
+    private fun cropSelectedTarget(bitmap: Bitmap, box: NormalizedRect): Bitmap {
+        return SelectedTargetCropper.cropBitmap(bitmap, box)
     }
 
     private fun getReasonTitle(reason: DiagnosisReason): String {

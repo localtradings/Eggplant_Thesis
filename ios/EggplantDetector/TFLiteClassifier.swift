@@ -60,9 +60,12 @@ final class TFLiteClassifier {
         )
     }
 
-    func prepareFrame(pixelBuffer: CVPixelBuffer) throws -> PreparedFrame {
+    func prepareFrame(pixelBuffer: CVPixelBuffer, crop: NormalizedRect? = nil) throws -> PreparedFrame {
         let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let preparedImage = sourceImage.centerCroppedToSquare().resized(to: CGSize(width: inputWidth, height: inputHeight))
+        let squareImage = sourceImage.centerCroppedToSquare()
+        // Selected-target crop happens here so the existing preprocessing and diagnosis pipeline receive only the manual target region.
+        let croppedImage = crop.map { squareImage.cropped(toNormalizedRect: $0) } ?? squareImage
+        let preparedImage = croppedImage.resized(to: CGSize(width: inputWidth, height: inputHeight))
 
         var outputBuffer: CVPixelBuffer?
         let attributes: [CFString: Any] = [
@@ -242,6 +245,23 @@ private extension CIImage {
         let xOffset = extent.origin.x + (extent.width - squareSize) / 2
         let yOffset = extent.origin.y + (extent.height - squareSize) / 2
         return cropped(to: CGRect(x: xOffset, y: yOffset, width: squareSize, height: squareSize))
+    }
+
+    func cropped(toNormalizedRect box: NormalizedRect) -> CIImage {
+        let clampedLeft = min(max(box.left, 0), 1)
+        let clampedTop = min(max(box.top, 0), 1)
+        let clampedRight = min(max(box.right, clampedLeft), 1)
+        let clampedBottom = min(max(box.bottom, clampedTop), 1)
+        let cropRect = CGRect(
+            x: extent.origin.x + clampedLeft * extent.width,
+            y: extent.origin.y + clampedTop * extent.height,
+            width: max((clampedRight - clampedLeft) * extent.width, 1),
+            height: max((clampedBottom - clampedTop) * extent.height, 1)
+        ).integral
+
+        let boundedCrop = cropRect.intersection(extent)
+        guard !boundedCrop.isNull, !boundedCrop.isEmpty else { return self }
+        return cropped(to: boundedCrop)
     }
 
     func resized(to size: CGSize) -> CIImage {

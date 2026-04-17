@@ -59,11 +59,11 @@ final class PredictionView: UIView {
         }
     }
 
-    func render(targetState: SelectedTargetState) {
+    func render(targetState: SelectedTargetState, mode: CaptureMode) {
         eyebrowLabel.text = "TARGET"
         detailsLabel.isHidden = false
         divider.isHidden = false
-        detailsLabel.text = "Phase 1 keeps selection manual and offline. Future detector and tracker hooks are ready."
+        detailsLabel.text = "Selection stays manual and offline. Diagnosis runs only inside the selected target crop."
 
         switch targetState {
         case .none:
@@ -71,7 +71,9 @@ final class PredictionView: UIView {
             subtitleLabel.text = "Tap the preview to select one plant area."
         case .selected:
             titleLabel.text = "Target selected"
-            subtitleLabel.text = "Tap another plant to reselect, or reset the current target."
+            subtitleLabel.text = mode == .live
+                ? "Analyzing only the selected target."
+                : "Capture to analyze only the selected target."
         case .lost:
             titleLabel.text = "Target lost. Tap again."
             subtitleLabel.text = "The previous target was cleared."
@@ -131,7 +133,7 @@ final class PredictionView: UIView {
         ])
 
         if TargetSelectionContract.isPhase1ManualTargetingEnabled {
-            render(targetState: .none)
+            render(targetState: .none, mode: .photo)
         } else {
             render(state: .needsRetake(reason: .capturePhoto), mode: .photo)
         }

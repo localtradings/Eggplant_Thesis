@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import UIKit
 
 final class MainViewController: UIViewController {
@@ -16,6 +17,7 @@ final class MainViewController: UIViewController {
     private let selectedTargetController = SelectedTargetController()
     private let plantDetector: PlantDetector = PlaceholderPlantDetector()
     private let plantTracker: PlantTracker = ManualLockPlantTracker()
+    private let previewImageContext = CIContext()
     private let captureButton = UIButton(type: .system)
     private let retakeButton = UIButton(type: .system)
     private lazy var actionStack = UIStackView(arrangedSubviews: [captureButton, retakeButton])
@@ -212,7 +214,16 @@ final class MainViewController: UIViewController {
     }
 
     @objc private func capturePressed() {
-        guard !TargetSelectionContract.isPhase1ManualTargetingEnabled else { return }
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            guard captureMode == .photo else { return }
+            guard case .selected = selectedTargetController.state else {
+                renderTargetState()
+                return
+            }
+            pendingPhotoCapture = true
+            modeHelperLabel.text = "Analyzing only the selected target."
+            return
+        }
         guard captureMode == .photo else { return }
         pendingPhotoCapture = true
         modeHelperLabel.text = "Analyzing frame..."
@@ -220,6 +231,7 @@ final class MainViewController: UIViewController {
 
     @objc private func retakePressed() {
         if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            resetFrozenState()
             selectedTargetController.resetTarget(reason: .reset)
             renderTargetState()
             return
@@ -230,6 +242,7 @@ final class MainViewController: UIViewController {
 
     @objc private func handlePreviewTap(_ recognizer: UITapGestureRecognizer) {
         guard TargetSelectionContract.isPhase1ManualTargetingEnabled else { return }
+        resetFrozenState()
         let point = recognizer.location(in: targetOverlayView)
         let selection = PreviewTargetMapper.manualSelection(for: point, in: targetOverlayView.bounds)
         selectedTargetController.selectManualTarget(box: selection)
@@ -243,9 +256,20 @@ final class MainViewController: UIViewController {
         frozenImageView.isHidden = true
         frozenImageView.alpha = 0
         if TargetSelectionContract.isPhase1ManualTargetingEnabled {
-            captureButton.isHidden = true
-            retakeButton.isHidden = true
-            actionDock.isHidden = true
+            switch selectedTargetController.state {
+            case .selected:
+                captureButton.isHidden = captureMode == .live
+                retakeButton.isHidden = false
+                actionDock.isHidden = false
+                overlayBottomToDockConstraint?.isActive = true
+                overlayBottomToSafeAreaConstraint?.isActive = false
+            case .none, .lost:
+                captureButton.isHidden = true
+                retakeButton.isHidden = true
+                actionDock.isHidden = true
+                overlayBottomToDockConstraint?.isActive = false
+                overlayBottomToSafeAreaConstraint?.isActive = true
+            }
             return
         }
         captureButton.isHidden = captureMode == .live
@@ -256,6 +280,31 @@ final class MainViewController: UIViewController {
     }
 
     private func render(state: DiagnosisState) {
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            guard case .selected = selectedTargetController.state else {
+                renderTargetState()
+                return
+            }
+
+            if state != lastRenderedState || captureMode != lastRenderedMode {
+                overlayView.render(state: state, mode: captureMode)
+                lastRenderedState = state
+                lastRenderedMode = captureMode
+            }
+
+            targetOverlayView.targetState = selectedTargetController.state
+            actionDock.isHidden = false
+            overlayBottomToDockConstraint?.isActive = true
+            overlayBottomToSafeAreaConstraint?.isActive = false
+            captureButton.isHidden = captureMode != .photo || isFrozen
+            retakeButton.isHidden = false
+            modeHelperLabel.text = captureMode == .live
+                ? "Analyzing only the selected target."
+                : (isFrozen ? "Selected target diagnosis ready. Reset to choose again." : "Capture to analyze only the selected target.")
+            view.layoutIfNeeded()
+            return
+        }
+
         if state != lastRenderedState || captureMode != lastRenderedMode {
             overlayView.render(state: state, mode: captureMode)
             lastRenderedState = state
@@ -283,13 +332,17 @@ final class MainViewController: UIViewController {
     private func renderTargetState() {
         let targetState = selectedTargetController.state
         targetOverlayView.targetState = targetState
-        overlayView.render(targetState: targetState)
+        overlayView.render(targetState: targetState, mode: captureMode)
+        lastRenderedState = nil
+        lastRenderedMode = nil
 
         let hasSelectedTarget: Bool
         switch targetState {
         case .selected:
             hasSelectedTarget = true
-            modeHelperLabel.text = "Target selected"
+            modeHelperLabel.text = captureMode == .live
+                ? "Analyzing only the selected target."
+                : "Capture to analyze only the selected target."
         case .lost:
             hasSelectedTarget = false
             modeHelperLabel.text = "Target lost. Tap again."
@@ -298,12 +351,20 @@ final class MainViewController: UIViewController {
             modeHelperLabel.text = "Tap one eggplant plant to begin"
         }
 
-        captureButton.isHidden = true
+        captureButton.isHidden = !hasSelectedTarget || captureMode == .live || isFrozen
         retakeButton.isHidden = !hasSelectedTarget
         actionDock.isHidden = !hasSelectedTarget
         overlayBottomToDockConstraint?.isActive = hasSelectedTarget
         overlayBottomToSafeAreaConstraint?.isActive = !hasSelectedTarget
         view.layoutIfNeeded()
+    }
+
+    private func previewImage(from pixelBuffer: CVPixelBuffer) -> UIImage? {
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = previewImageContext.createCGImage(image, from: image.extent) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 
     private func animateChromeIn() {
@@ -328,7 +389,6 @@ extension MainViewController: CameraServiceDelegate {
         guard !isFrozen else { return }
 
         if TargetSelectionContract.isPhase1ManualTargetingEnabled {
-            // Phase 1 bypass: keep camera frames flowing while the existing diagnosis pipeline remains intact below.
             // Future eggplant detector hook: replace PlaceholderPlantDetector with a real detector that returns plant candidates.
             let candidatePlants = plantDetector.detectCandidates(in: pixelBuffer)
             // Future tracking hook: replace ManualLockPlantTracker with a real tracker that updates the selected target.
@@ -340,6 +400,70 @@ extension MainViewController: CameraServiceDelegate {
                 selectedTargetController.applyTrackedState(updatedState)
                 DispatchQueue.main.async { [weak self] in
                     self?.renderTargetState()
+                }
+            }
+
+            guard case let .selected(target) = selectedTargetController.state else { return }
+            guard let classifier else { return }
+
+            if captureMode == .live {
+                guard Date().timeIntervalSince(lastLiveInferenceAt) >= ModelContract.liveInferenceInterval else {
+                    return
+                }
+                lastLiveInferenceAt = Date()
+
+                do {
+                    let prepared = try classifier.prepareFrame(pixelBuffer: pixelBuffer, crop: target.box)
+                    let result = try classifier.classify(preparedFrame: prepared)
+                    // Future treatment hook: attach post-diagnosis treatment guidance after the selected-target diagnosis result is finalized.
+                    let state = DiagnosisRules.liveDiagnosis(assessment: prepared.assessment, result: result)
+                    NSLog(
+                        "EggplantDiagnosis mode=live brightness=%.3f leafRatio=%.3f centerLeafRatio=%.3f state=%@",
+                        prepared.assessment.meanBrightness,
+                        prepared.assessment.likelyLeafRatio,
+                        prepared.assessment.centerLeafRatio,
+                        String(describing: state)
+                    )
+                    DispatchQueue.main.async { [weak self] in
+                        self?.render(state: state)
+                    }
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.render(state: .needsRetake(reason: .frameSingleLeaf))
+                    }
+                }
+                return
+            }
+
+            if pendingPhotoCapture {
+                pendingPhotoCapture = false
+                isFrozen = true
+                let frozenPreviewImage = previewImage(from: pixelBuffer)
+                do {
+                    let prepared = try classifier.prepareFrame(pixelBuffer: pixelBuffer, crop: target.box)
+                    let result = try classifier.classify(preparedFrame: prepared)
+                    // Future treatment hook: attach post-diagnosis treatment guidance after the selected-target diagnosis result is finalized.
+                    let state = DiagnosisRules.photoDiagnosis(assessment: prepared.assessment, result: result)
+                    NSLog(
+                        "EggplantDiagnosis mode=photo brightness=%.3f leafRatio=%.3f centerLeafRatio=%.3f state=%@",
+                        prepared.assessment.meanBrightness,
+                        prepared.assessment.likelyLeafRatio,
+                        prepared.assessment.centerLeafRatio,
+                        String(describing: state)
+                    )
+                    DispatchQueue.main.async { [weak self] in
+                        self?.frozenImageView.image = frozenPreviewImage
+                        self?.frozenImageView.isHidden = frozenPreviewImage == nil
+                        UIView.animate(withDuration: 0.2) {
+                            self?.frozenImageView.alpha = frozenPreviewImage == nil ? 0 : 1
+                        }
+                        self?.render(state: state)
+                    }
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.isFrozen = false
+                        self?.render(state: .needsRetake(reason: .frameSingleLeaf))
+                    }
                 }
             }
             return
