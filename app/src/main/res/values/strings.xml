@@ -32,4 +32,13 @@
     <string name="ambiguous_body">The top labels are too close. Retake first.</string>
     <string name="captured_frame">Captured diagnosis frame</string>
     <string name="analyzing_photo">Analyzing the captured frame…</string>
+    <string name="reset_target">Reset target</string>
+    <string name="target_selection_title">Target selection</string>
+    <string name="target_none_title">Tap one eggplant plant to begin</string>
+    <string name="target_none_body">Tap the preview to select one plant area. Disease diagnosis is paused on this screen for Phase 1.</string>
+    <string name="target_selected_title">Target selected</string>
+    <string name="target_selected_body">Tap another plant to reselect, or reset the current target.</string>
+    <string name="target_lost_title">Target lost. Tap again.</string>
+    <string name="target_lost_body">The previous target was cleared. Tap the preview to select a plant again.</string>
+    <string name="target_selection_detail">Phase 1 keeps selection manual and offline. Future eggplant detector and tracker hooks are already in place.</string>
 </resources>

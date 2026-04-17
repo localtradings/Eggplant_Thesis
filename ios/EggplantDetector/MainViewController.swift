@@ -4,6 +4,7 @@ import UIKit
 final class MainViewController: UIViewController {
     private let previewView = CameraPreviewView()
     private let frozenImageView = UIImageView()
+    private let targetOverlayView = TargetOverlayView()
     private let topCard = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
     private let actionDock = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
     private let brandLabel = UILabel()
@@ -12,6 +13,9 @@ final class MainViewController: UIViewController {
     private let overlayView = PredictionView()
     private let cameraService = CameraService()
     private let classifier = try? TFLiteClassifier()
+    private let selectedTargetController = SelectedTargetController()
+    private let plantDetector: PlantDetector = PlaceholderPlantDetector()
+    private let plantTracker: PlantTracker = ManualLockPlantTracker()
     private let captureButton = UIButton(type: .system)
     private let retakeButton = UIButton(type: .system)
     private lazy var actionStack = UIStackView(arrangedSubviews: [captureButton, retakeButton])
@@ -34,7 +38,11 @@ final class MainViewController: UIViewController {
         super.viewDidLoad()
         configureUI()
         cameraService.delegate = self
-        render(state: .needsRetake(reason: .capturePhoto))
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            renderTargetState()
+        } else {
+            render(state: .needsRetake(reason: .capturePhoto))
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -60,6 +68,7 @@ final class MainViewController: UIViewController {
         actionDock.translatesAutoresizingMaskIntoConstraints = false
         brandLabel.translatesAutoresizingMaskIntoConstraints = false
         overlayView.translatesAutoresizingMaskIntoConstraints = false
+        targetOverlayView.translatesAutoresizingMaskIntoConstraints = false
         captureButton.translatesAutoresizingMaskIntoConstraints = false
         retakeButton.translatesAutoresizingMaskIntoConstraints = false
         modeControl.translatesAutoresizingMaskIntoConstraints = false
@@ -123,6 +132,7 @@ final class MainViewController: UIViewController {
         topStack.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(frozenImageView)
+        view.addSubview(targetOverlayView)
         view.addSubview(topCard)
         topCard.contentView.addSubview(topStack)
         view.addSubview(actionDock)
@@ -139,6 +149,11 @@ final class MainViewController: UIViewController {
             frozenImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             frozenImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             frozenImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            targetOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
+            targetOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            targetOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            targetOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             topCard.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
             topCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
@@ -169,6 +184,13 @@ final class MainViewController: UIViewController {
 
         overlayBottomToDockConstraint?.isActive = true
 
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(handlePreviewTap(_:)))
+            targetOverlayView.addGestureRecognizer(tapRecognizer)
+            captureButton.isHidden = true
+            retakeButton.configuration?.title = "Reset target"
+        }
+
         [topCard, overlayView, actionDock].forEach {
             $0.alpha = 0
             $0.transform = CGAffineTransform(translationX: 0, y: 18)
@@ -178,6 +200,11 @@ final class MainViewController: UIViewController {
     @objc private func modeChanged() {
         captureMode = modeControl.selectedSegmentIndex == 0 ? .live : .photo
         resetFrozenState()
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            selectedTargetController.resetTarget(reason: .modeChanged)
+            renderTargetState()
+            return
+        }
         let state: DiagnosisState = captureMode == .live
             ? .needsRetake(reason: .frameSingleLeaf)
             : .needsRetake(reason: .capturePhoto)
@@ -185,14 +212,28 @@ final class MainViewController: UIViewController {
     }
 
     @objc private func capturePressed() {
+        guard !TargetSelectionContract.isPhase1ManualTargetingEnabled else { return }
         guard captureMode == .photo else { return }
         pendingPhotoCapture = true
         modeHelperLabel.text = "Analyzing frame..."
     }
 
     @objc private func retakePressed() {
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            selectedTargetController.resetTarget(reason: .reset)
+            renderTargetState()
+            return
+        }
         resetFrozenState()
         render(state: .needsRetake(reason: .capturePhoto))
+    }
+
+    @objc private func handlePreviewTap(_ recognizer: UITapGestureRecognizer) {
+        guard TargetSelectionContract.isPhase1ManualTargetingEnabled else { return }
+        let point = recognizer.location(in: targetOverlayView)
+        let selection = PreviewTargetMapper.manualSelection(for: point, in: targetOverlayView.bounds)
+        selectedTargetController.selectManualTarget(box: selection)
+        renderTargetState()
     }
 
     private func resetFrozenState() {
@@ -201,6 +242,12 @@ final class MainViewController: UIViewController {
         frozenImageView.image = nil
         frozenImageView.isHidden = true
         frozenImageView.alpha = 0
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            captureButton.isHidden = true
+            retakeButton.isHidden = true
+            actionDock.isHidden = true
+            return
+        }
         captureButton.isHidden = captureMode == .live
         retakeButton.isHidden = true
         modeHelperLabel.text = captureMode == .live
@@ -233,6 +280,32 @@ final class MainViewController: UIViewController {
         view.layoutIfNeeded()
     }
 
+    private func renderTargetState() {
+        let targetState = selectedTargetController.state
+        targetOverlayView.targetState = targetState
+        overlayView.render(targetState: targetState)
+
+        let hasSelectedTarget: Bool
+        switch targetState {
+        case .selected:
+            hasSelectedTarget = true
+            modeHelperLabel.text = "Target selected"
+        case .lost:
+            hasSelectedTarget = false
+            modeHelperLabel.text = "Target lost. Tap again."
+        case .none:
+            hasSelectedTarget = false
+            modeHelperLabel.text = "Tap one eggplant plant to begin"
+        }
+
+        captureButton.isHidden = true
+        retakeButton.isHidden = !hasSelectedTarget
+        actionDock.isHidden = !hasSelectedTarget
+        overlayBottomToDockConstraint?.isActive = hasSelectedTarget
+        overlayBottomToSafeAreaConstraint?.isActive = !hasSelectedTarget
+        view.layoutIfNeeded()
+    }
+
     private func animateChromeIn() {
         let targets: [UIView] = [topCard, overlayView, actionDock]
         for (index, chrome) in targets.enumerated() {
@@ -252,7 +325,27 @@ final class MainViewController: UIViewController {
 
 extension MainViewController: CameraServiceDelegate {
     func cameraService(_ service: CameraService, didOutput pixelBuffer: CVPixelBuffer) {
-        guard let classifier, !isFrozen else { return }
+        guard !isFrozen else { return }
+
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            // Phase 1 bypass: keep camera frames flowing while the existing diagnosis pipeline remains intact below.
+            // Future eggplant detector hook: replace PlaceholderPlantDetector with a real detector that returns plant candidates.
+            let candidatePlants = plantDetector.detectCandidates(in: pixelBuffer)
+            // Future tracking hook: replace ManualLockPlantTracker with a real tracker that updates the selected target.
+            let updatedState = plantTracker.updateSelectedTarget(
+                currentState: selectedTargetController.state,
+                candidates: candidatePlants
+            )
+            if updatedState != selectedTargetController.state {
+                selectedTargetController.applyTrackedState(updatedState)
+                DispatchQueue.main.async { [weak self] in
+                    self?.renderTargetState()
+                }
+            }
+            return
+        }
+
+        guard let classifier else { return }
 
         if captureMode == .live {
             guard Date().timeIntervalSince(lastLiveInferenceAt) >= ModelContract.liveInferenceInterval else {
@@ -329,6 +422,13 @@ extension MainViewController: CameraServiceDelegate {
     }
 
     func cameraService(_ service: CameraService, didFail error: Error) {
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            selectedTargetController.resetTarget(reason: .cameraInterrupted)
+            DispatchQueue.main.async { [weak self] in
+                self?.renderTargetState()
+            }
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             self?.render(state: .needsRetake(reason: .frameSingleLeaf))
             self?.modeHelperLabel.text = error.localizedDescription

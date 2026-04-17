@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -20,7 +21,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import com.example.eggplantdetector.databinding.ActivityMainBinding
 import com.google.android.material.button.MaterialButtonToggleGroup
-import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -29,6 +29,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var classifier: TFLiteImageClassifier
+    private val selectedTargetController = SelectedTargetController()
+    private val plantDetector: PlantDetector = PlaceholderPlantDetector()
+    private val plantTracker: PlantTracker = ManualLockPlantTracker()
 
     private var captureMode = CaptureMode.PHOTO
     private var latestPreviewBitmap: Bitmap? = null
@@ -78,8 +81,24 @@ class MainActivity : AppCompatActivity() {
         binding.modeToggleGroup.check(R.id.photoModeButton)
         binding.modeToggleGroup.addOnButtonCheckedListener(modeCheckedListener)
         binding.captureButton.setOnClickListener { capturePhotoDiagnosis() }
-        binding.retakeButton.setOnClickListener { resetPhotoCapture(clearState = true) }
-        renderState(DiagnosisState.NeedsRetake(DiagnosisReason.CAPTURE_PHOTO))
+        if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+            binding.retakeButton.setOnClickListener {
+                selectedTargetController.resetTarget(TargetLossReason.RESET)
+                renderTargetState(selectedTargetController.state)
+            }
+            binding.captureButton.isVisible = false
+            binding.retakeButton.text = getString(R.string.reset_target)
+            binding.targetOverlayView.setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    handlePreviewTap(event.x, event.y)
+                }
+                true
+            }
+            renderTargetState(selectedTargetController.state)
+        } else {
+            binding.retakeButton.setOnClickListener { resetPhotoCapture(clearState = true) }
+            renderState(DiagnosisState.NeedsRetake(DiagnosisReason.CAPTURE_PHOTO))
+        }
     }
 
     private val modeCheckedListener =
@@ -87,6 +106,11 @@ class MainActivity : AppCompatActivity() {
             if (!isChecked) return@OnButtonCheckedListener
             captureMode = if (checkedId == R.id.liveModeButton) CaptureMode.LIVE else CaptureMode.PHOTO
             resetPhotoCapture(clearState = captureMode == CaptureMode.PHOTO)
+            if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+                selectedTargetController.resetTarget(TargetLossReason.MODE_CHANGED)
+                renderTargetState(selectedTargetController.state)
+                return@OnButtonCheckedListener
+            }
             val defaultState = if (captureMode == CaptureMode.LIVE) {
                 DiagnosisState.NeedsRetake(DiagnosisReason.FRAME_SINGLE_LEAF)
             } else {
@@ -98,31 +122,41 @@ class MainActivity : AppCompatActivity() {
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            try {
+                val cameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder()
-                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                .build()
-                .also { it.surfaceProvider = binding.previewView.surfaceProvider }
+                val preview = Preview.Builder()
+                    .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                    .build()
+                    .also { it.surfaceProvider = binding.previewView.surfaceProvider }
 
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor) { imageProxy ->
-                        analyzeImage(imageProxy)
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also {
+                        it.setAnalyzer(cameraExecutor) { imageProxy ->
+                            analyzeImage(imageProxy)
+                        }
                     }
-                }
 
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                this,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                imageAnalysis
-            )
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    this,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    imageAnalysis
+                )
+            } catch (error: Exception) {
+                Log.e("EggplantTargeting", "Camera start failed", error)
+                if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+                    selectedTargetController.resetTarget(TargetLossReason.CAMERA_INTERRUPTED)
+                    renderTargetState(selectedTargetController.state)
+                } else {
+                    Toast.makeText(this, "Camera could not start.", Toast.LENGTH_LONG).show()
+                }
+            }
         }, ContextCompat.getMainExecutor(this))
     }
 
@@ -135,11 +169,22 @@ class MainActivity : AppCompatActivity() {
         val bitmap = imageProxy.toBitmap()
         imageProxy.close()
         if (bitmap == null) {
-            runOnUiThread { renderState(DiagnosisState.NeedsRetake(DiagnosisReason.FRAME_SINGLE_LEAF)) }
+            runOnUiThread {
+                if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+                    selectedTargetController.resetTarget(TargetLossReason.CAMERA_INTERRUPTED)
+                    renderTargetState(selectedTargetController.state)
+                } else {
+                    renderState(DiagnosisState.NeedsRetake(DiagnosisReason.FRAME_SINGLE_LEAF))
+                }
+            }
             return
         }
 
         latestPreviewBitmap = bitmap
+        if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+            handleManualTargetingFrame(bitmap)
+            return
+        }
         val assessment = assessFrame(bitmap)
         latestFrameAssessment = assessment
 
@@ -161,6 +206,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun capturePhotoDiagnosis() {
+        if (TargetSelectionContract.isPhase1ManualTargetingEnabled) return
         if (captureMode != CaptureMode.PHOTO) return
         val bitmap = latestPreviewBitmap
         val assessment = latestFrameAssessment
@@ -188,6 +234,16 @@ class MainActivity : AppCompatActivity() {
         isFrozen = false
         binding.capturedFrameView.setImageDrawable(null)
         binding.capturedFrameView.isVisible = false
+        if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
+            binding.captureButton.isVisible = false
+            binding.retakeButton.isVisible =
+                selectedTargetController.state is SelectedTargetState.Selected
+            binding.actionRow.isVisible = binding.retakeButton.isVisible
+            if (clearState) {
+                renderTargetState(selectedTargetController.state)
+            }
+            return
+        }
         binding.captureButton.isVisible = captureMode == CaptureMode.PHOTO
         binding.retakeButton.isVisible = false
         if (clearState && captureMode == CaptureMode.PHOTO) {
@@ -295,6 +351,60 @@ class MainActivity : AppCompatActivity() {
                 binding.resultLabel.text = getReasonTitle(state.reason)
                 binding.resultScore.text = getReasonBody(state.reason)
                 binding.resultDetails.text = getString(R.string.contract_summary)
+            }
+        }
+    }
+
+    private fun handlePreviewTap(x: Float, y: Float) {
+        if (!TargetSelectionContract.isPhase1ManualTargetingEnabled) return
+        if (binding.targetOverlayView.width == 0 || binding.targetOverlayView.height == 0) return
+        val selectedBox = PreviewTargetMapper.manualSelectionForTap(
+            tapX = x,
+            tapY = y,
+            viewWidth = binding.targetOverlayView.width.toFloat(),
+            viewHeight = binding.targetOverlayView.height.toFloat()
+        )
+        selectedTargetController.selectManualTarget(selectedBox)
+        renderTargetState(selectedTargetController.state)
+    }
+
+    private fun handleManualTargetingFrame(bitmap: Bitmap) {
+        // Phase 1 bypass: keep the camera stream alive while the existing diagnosis pipeline stays intact below.
+        // Future eggplant detector hook: replace PlaceholderPlantDetector with a real detector that returns plant boxes.
+        val candidatePlants = plantDetector.detectCandidates(bitmap)
+        // Future tracking hook: replace ManualLockPlantTracker with a real tracker that updates the selected target.
+        val updatedState = plantTracker.updateSelectedTarget(selectedTargetController.state, candidatePlants)
+        if (updatedState != selectedTargetController.state) {
+            selectedTargetController.applyTrackedState(updatedState)
+            runOnUiThread { renderTargetState(selectedTargetController.state) }
+        }
+    }
+
+    private fun renderTargetState(state: SelectedTargetState) {
+        binding.targetOverlayView.targetState = state
+        binding.resultTitle.text = getString(R.string.target_selection_title)
+        binding.resultDetails.text = getString(R.string.target_selection_detail)
+        binding.captureButton.isVisible = false
+        binding.retakeButton.isVisible = state is SelectedTargetState.Selected
+        binding.actionRow.isVisible = binding.retakeButton.isVisible
+
+        when (state) {
+            SelectedTargetState.None -> {
+                binding.modeHelper.text = getString(R.string.target_none_title)
+                binding.resultLabel.text = getString(R.string.target_none_title)
+                binding.resultScore.text = getString(R.string.target_none_body)
+            }
+
+            is SelectedTargetState.Selected -> {
+                binding.modeHelper.text = getString(R.string.target_selected_title)
+                binding.resultLabel.text = getString(R.string.target_selected_title)
+                binding.resultScore.text = getString(R.string.target_selected_body)
+            }
+
+            is SelectedTargetState.Lost -> {
+                binding.modeHelper.text = getString(R.string.target_lost_title)
+                binding.resultLabel.text = getString(R.string.target_lost_title)
+                binding.resultScore.text = getString(R.string.target_lost_body)
             }
         }
     }

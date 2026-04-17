@@ -59,6 +59,25 @@ final class PredictionView: UIView {
         }
     }
 
+    func render(targetState: SelectedTargetState) {
+        eyebrowLabel.text = "TARGET"
+        detailsLabel.isHidden = false
+        divider.isHidden = false
+        detailsLabel.text = "Phase 1 keeps selection manual and offline. Future detector and tracker hooks are ready."
+
+        switch targetState {
+        case .none:
+            titleLabel.text = "Tap one eggplant plant to begin"
+            subtitleLabel.text = "Tap the preview to select one plant area."
+        case .selected:
+            titleLabel.text = "Target selected"
+            subtitleLabel.text = "Tap another plant to reselect, or reset the current target."
+        case .lost:
+            titleLabel.text = "Target lost. Tap again."
+            subtitleLabel.text = "The previous target was cleared."
+        }
+    }
+
     private func configure() {
         backgroundColor = .clear
         cardView.translatesAutoresizingMaskIntoConstraints = false
@@ -111,6 +130,10 @@ final class PredictionView: UIView {
             divider.heightAnchor.constraint(equalToConstant: 1)
         ])
 
-        render(state: .needsRetake(reason: .capturePhoto), mode: .photo)
+        if TargetSelectionContract.isPhase1ManualTargetingEnabled {
+            render(targetState: .none)
+        } else {
+            render(state: .needsRetake(reason: .capturePhoto), mode: .photo)
+        }
     }
 }
