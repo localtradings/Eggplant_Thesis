@@ -3,6 +3,7 @@ package com.example.eggplantdetector
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.os.Bundle
 import android.os.SystemClock
@@ -36,6 +37,9 @@ class MainActivity : AppCompatActivity() {
     private var captureMode = CaptureMode.PHOTO
     private var latestPreviewBitmap: Bitmap? = null
     private var latestFrameAssessment: FrameAssessment? = null
+    private var latestCameraDebugSnapshot: DiagnosisDebugSnapshot? = null
+    private var latestBundledDebugSnapshot: DiagnosisDebugSnapshot? = null
+    private var displayedDebugSnapshot: DiagnosisDebugSnapshot? = null
     private var lastAnalysisTimestampMs = 0L
     private var isFrozen = false
 
@@ -81,6 +85,8 @@ class MainActivity : AppCompatActivity() {
         binding.modeToggleGroup.check(R.id.photoModeButton)
         binding.modeToggleGroup.addOnButtonCheckedListener(modeCheckedListener)
         binding.captureButton.setOnClickListener { capturePhotoDiagnosis() }
+        binding.debugSampleButton.isVisible = BuildConfig.DEBUG
+        binding.debugSampleButton.setOnClickListener { runBundledDebugSampleDiagnosis() }
         if (TargetSelectionContract.isPhase1ManualTargetingEnabled) {
             binding.retakeButton.setOnClickListener {
                 resetPhotoCapture(clearState = false)
@@ -228,8 +234,21 @@ class MainActivity : AppCompatActivity() {
                 val selectedCrop = cropSelectedTarget(frozenBitmap, selectedTarget.box)
                 val assessment = assessFrame(selectedCrop)
                 latestFrameAssessment = assessment
+                val result = classifier.classify(selectedCrop)
                 // Future treatment hook: attach post-diagnosis treatment guidance after the selected-target diagnosis result is finalized.
-                val state = DiagnosisRules.photoDiagnosis(assessment, classifier.classify(selectedCrop))
+                val state = DiagnosisRules.photoDiagnosis(assessment, result)
+                publishCameraDebugSnapshot(
+                    buildDebugSnapshot(
+                    sourceType = DebugDiagnosisSource.SELECTED_TARGET,
+                    sourceLabel = "Source: Camera Selected Crop",
+                    fileLabel = "Selected crop from active camera target",
+                    sourceBitmap = selectedCrop,
+                    assessment = assessment,
+                    result = result,
+                    state = state,
+                    mode = CaptureMode.PHOTO
+                    )
+                )
                 logDiagnosis(state, assessment, CaptureMode.PHOTO)
                 runOnUiThread { renderState(state) }
             }
@@ -408,6 +427,8 @@ class MainActivity : AppCompatActivity() {
                 binding.resultDetails.text = getString(R.string.contract_summary)
             }
         }
+
+        renderDebugSnapshot(displayedDebugSnapshot)
     }
 
     private fun handlePreviewTap(x: Float, y: Float) {
@@ -449,8 +470,21 @@ class MainActivity : AppCompatActivity() {
                         val selectedCrop = cropSelectedTarget(bitmap, targetState.target.box)
                         val assessment = assessFrame(selectedCrop)
                         latestFrameAssessment = assessment
+                        val result = classifier.classify(selectedCrop)
                         // Future treatment hook: attach post-diagnosis treatment guidance after the selected-target diagnosis result is finalized.
-                        val state = DiagnosisRules.liveDiagnosis(assessment, classifier.classify(selectedCrop))
+                        val state = DiagnosisRules.liveDiagnosis(assessment, result)
+                        publishCameraDebugSnapshot(
+                            buildDebugSnapshot(
+                            sourceType = DebugDiagnosisSource.SELECTED_TARGET,
+                            sourceLabel = "Source: Camera Selected Crop",
+                            fileLabel = "Selected crop from active camera target",
+                            sourceBitmap = selectedCrop,
+                            assessment = assessment,
+                            result = result,
+                            state = state,
+                            mode = CaptureMode.LIVE
+                            )
+                        )
                         logDiagnosis(state, assessment, CaptureMode.LIVE)
                         runOnUiThread { renderState(state) }
                     }
@@ -467,6 +501,10 @@ class MainActivity : AppCompatActivity() {
         binding.targetOverlayView.targetState = state
         binding.resultTitle.text = getString(R.string.target_selection_title)
         binding.resultDetails.text = getString(R.string.target_selection_detail)
+        if (state !is SelectedTargetState.Selected && displayedDebugSnapshot?.sourceType == DebugDiagnosisSource.SELECTED_TARGET) {
+            latestCameraDebugSnapshot = null
+            displayedDebugSnapshot = latestBundledDebugSnapshot
+        }
 
         when (state) {
             SelectedTargetState.None -> {
@@ -501,6 +539,8 @@ class MainActivity : AppCompatActivity() {
                 binding.actionRow.isVisible = false
             }
         }
+
+        renderDebugSnapshot(displayedDebugSnapshot)
     }
 
     private fun selectedTargetOrNull(): SelectedPlantTarget? {
@@ -509,6 +549,107 @@ class MainActivity : AppCompatActivity() {
 
     private fun cropSelectedTarget(bitmap: Bitmap, box: NormalizedRect): Bitmap {
         return SelectedTargetCropper.cropBitmap(bitmap, box)
+    }
+
+    private fun runBundledDebugSampleDiagnosis() {
+        if (!BuildConfig.DEBUG) return
+        binding.debugSampleButton.isEnabled = false
+        cameraExecutor.execute {
+            val sample = loadBundledDebugSampleBitmap()
+            val snapshot = if (sample == null) {
+                DiagnosisDebugSnapshot(
+                    sourceType = DebugDiagnosisSource.BUNDLED_SAMPLE,
+                    sourceLabel = "Source: Bundled Sample",
+                    fileLabel = "No bundled debug sample found.",
+                    previewBitmap = null,
+                    details = "No bundled debug sample found."
+                )
+            } else {
+                val assessment = assessFrame(sample.bitmap)
+                val result = classifier.classify(sample.bitmap)
+                val state = DiagnosisRules.photoDiagnosis(assessment, result)
+                buildDebugSnapshot(
+                    sourceType = DebugDiagnosisSource.BUNDLED_SAMPLE,
+                    sourceLabel = "Source: Bundled Sample",
+                    fileLabel = sample.filename,
+                    sourceBitmap = sample.bitmap,
+                    assessment = assessment,
+                    result = result,
+                    state = state,
+                    mode = CaptureMode.PHOTO
+                )
+            }
+
+            publishBundledDebugSnapshot(snapshot)
+            runOnUiThread {
+                binding.debugSampleButton.isEnabled = true
+                renderDebugSnapshot(displayedDebugSnapshot)
+            }
+        }
+    }
+
+    private fun loadBundledDebugSampleBitmap(): BundledDebugSample? {
+        val debugSampleNames = assets.list("debug_samples")
+            ?.filter { it.endsWith(".jpg", ignoreCase = true) || it.endsWith(".jpeg", ignoreCase = true) || it.endsWith(".png", ignoreCase = true) }
+            ?.sorted()
+            .orEmpty()
+
+        val assetName = debugSampleNames.firstOrNull() ?: return null
+        val bitmap = assets.open("debug_samples/$assetName").use(BitmapFactory::decodeStream) ?: return null
+        return BundledDebugSample(filename = assetName, bitmap = bitmap)
+    }
+
+    private fun buildDebugSnapshot(
+        sourceType: DebugDiagnosisSource,
+        sourceLabel: String,
+        fileLabel: String,
+        sourceBitmap: Bitmap,
+        assessment: FrameAssessment,
+        result: TFLiteImageClassifier.ClassificationResult?,
+        state: DiagnosisState,
+        mode: CaptureMode
+    ): DiagnosisDebugSnapshot {
+        val previewBitmap = classifier.prepareDebugBitmap(sourceBitmap)
+        val details = listOf(
+            "File: $fileLabel",
+            "Source image: ${sourceBitmap.width}x${sourceBitmap.height}",
+            "Classifier input: ${previewBitmap.width}x${previewBitmap.height}",
+            DiagnosisDebugTrace.rawTopResults(result),
+            DiagnosisDebugTrace.assessmentSummary(assessment),
+            DiagnosisDebugTrace.decisionPath(mode, assessment, result, state)
+        ).joinToString(separator = "\n\n")
+        return DiagnosisDebugSnapshot(sourceType, sourceLabel, previewBitmap, details)
+    }
+
+    private fun renderDebugSnapshot(snapshot: DiagnosisDebugSnapshot?) {
+        val shouldShowDebug = BuildConfig.DEBUG && snapshot != null
+        binding.debugSection.isVisible = shouldShowDebug
+        if (!shouldShowDebug) {
+            binding.debugCropPreview.setImageDrawable(null)
+            return
+        }
+
+        binding.debugSource.text = snapshot!!.sourceLabel
+        binding.debugDetails.text = snapshot.details
+        if (snapshot.previewBitmap != null) {
+            binding.debugCropPreview.isVisible = true
+            binding.debugCropPreview.setImageBitmap(snapshot.previewBitmap)
+        } else {
+            binding.debugCropPreview.isVisible = false
+            binding.debugCropPreview.setImageDrawable(null)
+        }
+    }
+
+    private fun publishCameraDebugSnapshot(snapshot: DiagnosisDebugSnapshot) {
+        latestCameraDebugSnapshot = snapshot
+        if (displayedDebugSnapshot?.sourceType != DebugDiagnosisSource.BUNDLED_SAMPLE) {
+            displayedDebugSnapshot = snapshot
+        }
+    }
+
+    private fun publishBundledDebugSnapshot(snapshot: DiagnosisDebugSnapshot) {
+        latestBundledDebugSnapshot = snapshot
+        displayedDebugSnapshot = snapshot
     }
 
     private fun getReasonTitle(reason: DiagnosisReason): String {
@@ -577,3 +718,20 @@ class MainActivity : AppCompatActivity() {
         return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
     }
 }
+
+private enum class DebugDiagnosisSource {
+    SELECTED_TARGET,
+    BUNDLED_SAMPLE
+}
+
+private data class DiagnosisDebugSnapshot(
+    val sourceType: DebugDiagnosisSource,
+    val sourceLabel: String,
+    val previewBitmap: Bitmap?,
+    val details: String
+)
+
+private data class BundledDebugSample(
+    val filename: String,
+    val bitmap: Bitmap
+)

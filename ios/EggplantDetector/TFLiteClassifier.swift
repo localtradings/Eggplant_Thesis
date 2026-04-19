@@ -62,11 +62,26 @@ final class TFLiteClassifier {
 
     func prepareFrame(pixelBuffer: CVPixelBuffer, crop: NormalizedRect? = nil) throws -> PreparedFrame {
         let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
+        return try prepareImage(sourceImage, crop: crop)
+    }
+
+    func prepareImage(_ image: UIImage, crop: NormalizedRect? = nil) throws -> PreparedFrame {
+        if let ciImage = CIImage(image: image) {
+            return try prepareImage(ciImage, crop: crop)
+        }
+
+        guard let cgImage = image.cgImage else {
+            throw ClassifierError.pixelBufferReadFailed
+        }
+
+        return try prepareImage(CIImage(cgImage: cgImage), crop: crop)
+    }
+
+    private func prepareImage(_ sourceImage: CIImage, crop: NormalizedRect?) throws -> PreparedFrame {
         let squareImage = sourceImage.centerCroppedToSquare()
         // Selected-target crop happens here so the existing preprocessing and diagnosis pipeline receive only the manual target region.
         let croppedImage = crop.map { squareImage.cropped(toNormalizedRect: $0) } ?? squareImage
         let preparedImage = croppedImage.resized(to: CGSize(width: inputWidth, height: inputHeight))
-
         var outputBuffer: CVPixelBuffer?
         let attributes: [CFString: Any] = [
             kCVPixelBufferCGImageCompatibilityKey: true,
@@ -176,7 +191,9 @@ private func isLikelyLeafPixel(red: Float, green: Float, blue: Float) -> Bool {
     let saturation: Float = maxChannel == 0 ? 0 : chroma / maxChannel
     let value = maxChannel
 
-    if value < 0.18 || saturation < 0.2 {
+    // Diseased eggplant leaves can be pale and mottled, so the leaf precheck
+    // needs to tolerate slightly lower saturation than a healthy green leaf.
+    if value < 0.16 || saturation < 0.14 {
         return false
     }
 
@@ -192,7 +209,7 @@ private func isLikelyLeafPixel(red: Float, green: Float, blue: Float) -> Bool {
     }
 
     let normalizedHue = hue < 0 ? hue + 360 : hue
-    let greenEnough = green > red * 1.03 && green > blue * 1.08
+    let greenEnough = green > red * 0.96 && green > blue * 1.02
     let inLeafHueBand = normalizedHue >= 55 && normalizedHue <= 165
     return greenEnough && inLeafHueBand
 }

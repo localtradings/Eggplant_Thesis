@@ -6,11 +6,32 @@ final class CameraPreviewView: UIView {
         AVCaptureVideoPreviewLayer.self
     }
 
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        commonInit()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        commonInit()
+    }
+
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         guard let layer = layer as? AVCaptureVideoPreviewLayer else {
             fatalError("Expected AVCaptureVideoPreviewLayer backing layer")
         }
         return layer
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        videoPreviewLayer.frame = bounds
+    }
+
+    private func commonInit() {
+        backgroundColor = .black
+        clipsToBounds = true
+        videoPreviewLayer.videoGravity = .resizeAspectFill
     }
 }
 
@@ -46,6 +67,10 @@ final class CameraService: NSObject {
                         view.layoutIfNeeded()
                         view.videoPreviewLayer.session = self.session
                         view.videoPreviewLayer.videoGravity = .resizeAspectFill
+                        if let connection = view.videoPreviewLayer.connection,
+                           connection.isVideoOrientationSupported {
+                            connection.videoOrientation = .portrait
+                        }
                         view.videoPreviewLayer.frame = view.bounds
                     }
                 } catch {

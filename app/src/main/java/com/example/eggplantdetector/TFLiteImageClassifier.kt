@@ -64,7 +64,7 @@ class TFLiteImageClassifier(context: Context) : Closeable {
     }
 
     fun classify(bitmap: Bitmap): ClassificationResult? {
-        val preparedBitmap = bitmap.centerCrop().scaleToModelInput(inputWidth, inputHeight)
+        val preparedBitmap = prepareDebugBitmap(bitmap)
         val inputBuffer = bitmapToBuffer(preparedBitmap)
 
         val output = when (outputType) {
@@ -104,6 +104,10 @@ class TFLiteImageClassifier(context: Context) : Closeable {
                 topResults = topResults
             )
         }
+    }
+
+    fun prepareDebugBitmap(bitmap: Bitmap): Bitmap {
+        return bitmap.centerCrop().scaleToModelInput(inputWidth, inputHeight)
     }
 
     private fun bitmapToBuffer(bitmap: Bitmap): ByteBuffer {

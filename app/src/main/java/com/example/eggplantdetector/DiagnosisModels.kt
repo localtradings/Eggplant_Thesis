@@ -120,3 +120,97 @@ object DiagnosisRules {
         }
     }
 }
+
+object DiagnosisDebugTrace {
+    fun rawTopResults(
+        result: TFLiteImageClassifier.ClassificationResult?
+    ): String {
+        val topResults = result?.topResults.orEmpty()
+        if (topResults.isEmpty()) {
+            return "raw top3: no model scores returned"
+        }
+
+        return buildString {
+            appendLine("raw top3:")
+            topResults.take(3).forEachIndexed { index, prediction ->
+                appendLine(
+                    "${index + 1}. ${prediction.label} = ${"%.4f".format(prediction.confidence)}"
+                )
+            }
+        }.trim()
+    }
+
+    fun assessmentSummary(assessment: FrameAssessment): String {
+        return "assessment: brightness=${"%.4f".format(assessment.meanBrightness)}, " +
+            "leafRatio=${"%.4f".format(assessment.likelyLeafRatio)}, " +
+            "centerLeafRatio=${"%.4f".format(assessment.centerLeafRatio)}"
+    }
+
+    fun decisionPath(
+        mode: CaptureMode,
+        assessment: FrameAssessment,
+        result: TFLiteImageClassifier.ClassificationResult?,
+        state: DiagnosisState
+    ): String {
+        val lines = mutableListOf<String>()
+        lines += "preprocess: selected/source image -> square crop -> resize -> RGB -> model"
+        lines += "leaf guard: likelyLeafRatio ${formatFloat(assessment.likelyLeafRatio)} vs ${formatFloat(ModelContract.minLeafRatio)}, centerLeafRatio ${formatFloat(assessment.centerLeafRatio)} vs ${formatFloat(ModelContract.minCenterLeafRatio)}"
+
+        if (
+            assessment.likelyLeafRatio < ModelContract.minLeafRatio ||
+            assessment.centerLeafRatio < ModelContract.minCenterLeafRatio
+        ) {
+            lines += "decision: brightness guard failed -> ${stateSummary(state)}"
+            return lines.joinToString(separator = "\n")
+        }
+
+        lines += "brightness guard: mean ${formatFloat(assessment.meanBrightness)} in [${formatFloat(ModelContract.minBrightness)}, ${formatFloat(ModelContract.maxBrightness)}]"
+        if (assessment.meanBrightness < ModelContract.minBrightness || assessment.meanBrightness > ModelContract.maxBrightness) {
+            lines += "decision: brightness out of range -> ${stateSummary(state)}"
+            return lines.joinToString(separator = "\n")
+        }
+
+        val best = result?.topResults?.getOrNull(0)
+        val second = result?.topResults?.getOrNull(1)
+        if (best == null) {
+            lines += "decision: no top result returned -> ${stateSummary(state)}"
+            return lines.joinToString(separator = "\n")
+        }
+
+        lines += "model: best=${best.label} ${formatFloat(best.confidence)}, second=${second?.label ?: "none"} ${formatFloat(second?.confidence ?: 0f)}"
+        val confidenceLine = when (mode) {
+            CaptureMode.LIVE ->
+                "live confidence rule: ${formatFloat(best.confidence)} vs ${formatFloat(ModelContract.minConfidence)}"
+            CaptureMode.PHOTO ->
+                "photo confidence rule: ${formatFloat(best.confidence)} vs ${formatFloat(ModelContract.minConfidence)}"
+        }
+        lines += confidenceLine
+
+        if (best.confidence < ModelContract.minConfidence) {
+            lines += "decision: confidence below threshold -> ${stateSummary(state)}"
+            return lines.joinToString(separator = "\n")
+        }
+
+        if (second != null) {
+            val margin = best.confidence - second.confidence
+            lines += "ambiguity margin: ${formatFloat(margin)} vs ${formatFloat(ModelContract.ambiguityMargin)}"
+            if (margin < ModelContract.ambiguityMargin) {
+                lines += "decision: ambiguity margin failed -> ${stateSummary(state)}"
+                return lines.joinToString(separator = "\n")
+            }
+        }
+
+        lines += "decision: all guards passed -> ${stateSummary(state)}"
+        return lines.joinToString(separator = "\n")
+    }
+
+    private fun stateSummary(state: DiagnosisState): String {
+        return when (state) {
+            is DiagnosisState.Confirmed -> "confirmed ${state.label}"
+            is DiagnosisState.Uncertain -> "uncertain ${state.reason}"
+            is DiagnosisState.NeedsRetake -> "needsRetake ${state.reason}"
+        }
+    }
+
+    private fun formatFloat(value: Float): String = "%.4f".format(value)
+}

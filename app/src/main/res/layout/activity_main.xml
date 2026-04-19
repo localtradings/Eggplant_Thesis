@@ -105,6 +105,16 @@
                 android:text="@string/photo_mode_helper"
                 android:textColor="@color/primaryText"
                 android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/debugSampleButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:minHeight="40dp"
+                android:text="@string/debug_sample_button"
+                android:visibility="gone" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -174,6 +184,51 @@
                 android:textColor="@color/secondaryText"
                 android:textSize="12sp"
                 tools:text="healthy: 95.2%\nleaf spot: 3.1%\nwilt: 1.0%" />
+
+            <LinearLayout
+                android:id="@+id/debugSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/overlayStroke" />
+
+                <TextView
+                    android:id="@+id/debugSource"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/debug_section_title"
+                    android:textAllCaps="true"
+                    android:textColor="@color/secondaryText"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:id="@+id/debugCropPreview"
+                    android:layout_width="match_parent"
+                    android:layout_height="120dp"
+                    android:layout_marginTop="10dp"
+                    android:adjustViewBounds="true"
+                    android:contentDescription="@string/debug_crop_preview"
+                    android:scaleType="fitCenter"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/debugDetails"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/secondaryText"
+                    android:textSize="11sp"
+                    tools:text="raw top3:\n1. healthy = 0.8123\n2. leaf_spot = 0.1222\n\nassessment: brightness=0.4512, leafRatio=0.3371, centerLeafRatio=0.2810\n\npreprocess: selected crop -> square crop -> resize -> RGB -> model" />
+            </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 

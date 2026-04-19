@@ -70,7 +70,7 @@ enum ModelContract {
     static let ambiguityMargin: Float = 0.12
     static let minBrightness: Float = 0.18
     static let maxBrightness: Float = 0.92
-    static let minLeafRatio: Float = 0.22
+    static let minLeafRatio: Float = 0.18
     static let minCenterLeafRatio: Float = 0.18
     static let liveInferenceInterval: TimeInterval = 0.7
     static let preprocessingSummary = "Center crop to a square, resize to the model input size, convert to RGB, normalize to 0..1 for float models, and decode one score per class."
@@ -148,5 +148,95 @@ enum DiagnosisRules {
         }
 
         return nil
+    }
+}
+
+enum DiagnosisDebugTrace {
+    static func rawTopResults(_ result: ClassificationResult?) -> String {
+        let topResults = result?.topResults ?? []
+        guard !topResults.isEmpty else {
+            return "raw top3: no model scores returned"
+        }
+
+        let lines = topResults.prefix(3).enumerated().map { index, prediction in
+            "\(index + 1). \(prediction.label) = \(format(prediction.confidence))"
+        }
+        return (["raw top3:"] + lines).joined(separator: "\n")
+    }
+
+    static func assessmentSummary(_ assessment: FrameAssessment) -> String {
+        "assessment: brightness=\(format(assessment.meanBrightness)), leafRatio=\(format(assessment.likelyLeafRatio)), centerLeafRatio=\(format(assessment.centerLeafRatio))"
+    }
+
+    static func decisionPath(
+        mode: CaptureMode,
+        assessment: FrameAssessment,
+        result: ClassificationResult?,
+        state: DiagnosisState
+    ) -> String {
+        var lines = ["preprocess: selected/source image -> square crop -> resize -> RGB -> model"]
+        lines.append(
+            "leaf guard: likelyLeafRatio \(format(assessment.likelyLeafRatio)) vs \(format(ModelContract.minLeafRatio)), centerLeafRatio \(format(assessment.centerLeafRatio)) vs \(format(ModelContract.minCenterLeafRatio))"
+        )
+
+        if assessment.likelyLeafRatio < ModelContract.minLeafRatio ||
+            assessment.centerLeafRatio < ModelContract.minCenterLeafRatio {
+            lines.append("decision: brightness guard failed -> \(stateSummary(state))")
+            return lines.joined(separator: "\n")
+        }
+
+        lines.append(
+            "brightness guard: mean \(format(assessment.meanBrightness)) in [\(format(ModelContract.minBrightness)), \(format(ModelContract.maxBrightness))]"
+        )
+        if assessment.meanBrightness < ModelContract.minBrightness ||
+            assessment.meanBrightness > ModelContract.maxBrightness {
+            lines.append("decision: brightness out of range -> \(stateSummary(state))")
+            return lines.joined(separator: "\n")
+        }
+
+        guard let best = result?.topResults.first else {
+            lines.append("decision: no top result returned -> \(stateSummary(state))")
+            return lines.joined(separator: "\n")
+        }
+
+        let second = result?.topResults.dropFirst().first
+        lines.append(
+            "model: best=\(best.label) \(format(best.confidence)), second=\(second?.label ?? "none") \(format(second?.confidence ?? 0))"
+        )
+        lines.append(
+            "\(mode == .live ? "live" : "photo") confidence rule: \(format(best.confidence)) vs \(format(ModelContract.minConfidence))"
+        )
+
+        if best.confidence < ModelContract.minConfidence {
+            lines.append("decision: confidence below threshold -> \(stateSummary(state))")
+            return lines.joined(separator: "\n")
+        }
+
+        if let second {
+            let margin = best.confidence - second.confidence
+            lines.append("ambiguity margin: \(format(margin)) vs \(format(ModelContract.ambiguityMargin))")
+            if margin < ModelContract.ambiguityMargin {
+                lines.append("decision: ambiguity margin failed -> \(stateSummary(state))")
+                return lines.joined(separator: "\n")
+            }
+        }
+
+        lines.append("decision: all guards passed -> \(stateSummary(state))")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func stateSummary(_ state: DiagnosisState) -> String {
+        switch state {
+        case let .confirmed(label, _, _):
+            return "confirmed \(label)"
+        case let .uncertain(_, reason):
+            return "uncertain \(reason)"
+        case let .needsRetake(reason):
+            return "needsRetake \(reason)"
+        }
+    }
+
+    private static func format(_ value: Float) -> String {
+        String(format: "%.4f", value)
     }
 }

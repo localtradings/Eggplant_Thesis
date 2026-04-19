@@ -4,7 +4,9 @@ import Foundation
 
 enum TargetSelectionContract {
     static let isPhase1ManualTargetingEnabled = true
-    static let manualSelectionBoxSizeRatio: CGFloat = 0.28
+    static let manualSelectionBoxSizeRatio: CGFloat = 0.36
+    static let liveDiagnosisCropExpansion: CGFloat = 1.35
+    static let photoDiagnosisCropExpansion: CGFloat = 1.15
 }
 
 struct NormalizedRect: Equatable {
@@ -39,6 +41,19 @@ struct NormalizedRect: Equatable {
             top: top,
             right: min(max(left + clampedWidth, left), 1),
             bottom: min(max(top + clampedHeight, top), 1)
+        )
+    }
+
+    func expanded(scale: CGFloat) -> NormalizedRect {
+        let width = right - left
+        let height = bottom - top
+        let centerX = (left + right) / 2
+        let centerY = (top + bottom) / 2
+        return NormalizedRect.fromCenter(
+            centerX: centerX,
+            centerY: centerY,
+            widthRatio: width * scale,
+            heightRatio: height * scale
         )
     }
 }

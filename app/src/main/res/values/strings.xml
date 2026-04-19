@@ -44,4 +44,7 @@
     <string name="analyzing_selected_target">Analyzing only the selected target.</string>
     <string name="selected_target_photo_prompt">Capture to analyze only the selected target.</string>
     <string name="selected_target_photo_ready">Selected target diagnosis ready. Reset to choose again.</string>
+    <string name="debug_sample_button">Run Bundled Sample</string>
+    <string name="debug_section_title">Debug diagnosis</string>
+    <string name="debug_crop_preview">Diagnosis input preview</string>
 </resources>
