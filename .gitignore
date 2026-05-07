@@ -8,5 +8,29 @@ ios/*.xcworkspace/
 ios/*.xcodeproj/
 *.iml
 local.properties
+
+.venv/
+.sixth/
+
+# Local environment / OS cruft
 Thumbs.db
 Desktop.ini
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Large/derived artifacts (keep out of git)
+*.apk
+*.aab
+
+# Local scratch outputs
+**/tmp/
+
+# Accidental env var / local marker file seen in root
+%ANDROID_SDK_ROOT%

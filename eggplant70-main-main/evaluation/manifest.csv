@@ -1,0 +1,5 @@
+image_path,expected_outcome,expected_label,notes
+images/healthy_even_light.jpg,confirmed,healthy,Add a clean close-up healthy sample during pilot calibration.
+images/leaf_spot_clear.jpg,confirmed,leaf_spot,Add a sharp disease-positive sample with one dominant leaf.
+images/ambiguous_background.jpg,uncertain,,Add a cluttered sample that should not name a disease.
+images/low_light_leaf.jpg,needsRetake,,Add a dark sample that should trigger lighting guidance.
