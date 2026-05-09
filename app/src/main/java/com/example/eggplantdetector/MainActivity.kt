@@ -239,14 +239,14 @@ class MainActivity : AppCompatActivity() {
                 val state = DiagnosisRules.photoDiagnosis(assessment, result)
                 publishCameraDebugSnapshot(
                     buildDebugSnapshot(
-                    sourceType = DebugDiagnosisSource.SELECTED_TARGET,
-                    sourceLabel = "Source: Camera Selected Crop",
-                    fileLabel = "Selected crop from active camera target",
-                    sourceBitmap = selectedCrop,
-                    assessment = assessment,
-                    result = result,
-                    state = state,
-                    mode = CaptureMode.PHOTO
+                        sourceType = DebugDiagnosisSource.SELECTED_TARGET,
+                        sourceLabel = "Source: Camera Selected Crop",
+                        fileLabel = "Selected crop from active camera target",
+                        sourceBitmap = selectedCrop,
+                        assessment = assessment,
+                        result = result,
+                        state = state,
+                        mode = CaptureMode.PHOTO
                     )
                 )
                 logDiagnosis(state, assessment, CaptureMode.PHOTO)
@@ -475,14 +475,14 @@ class MainActivity : AppCompatActivity() {
                         val state = DiagnosisRules.liveDiagnosis(assessment, result)
                         publishCameraDebugSnapshot(
                             buildDebugSnapshot(
-                            sourceType = DebugDiagnosisSource.SELECTED_TARGET,
-                            sourceLabel = "Source: Camera Selected Crop",
-                            fileLabel = "Selected crop from active camera target",
-                            sourceBitmap = selectedCrop,
-                            assessment = assessment,
-                            result = result,
-                            state = state,
-                            mode = CaptureMode.LIVE
+                                sourceType = DebugDiagnosisSource.SELECTED_TARGET,
+                                sourceLabel = "Source: Camera Selected Crop",
+                                fileLabel = "Selected crop from active camera target",
+                                sourceBitmap = selectedCrop,
+                                assessment = assessment,
+                                result = result,
+                                state = state,
+                                mode = CaptureMode.LIVE
                             )
                         )
                         logDiagnosis(state, assessment, CaptureMode.LIVE)
@@ -560,7 +560,6 @@ class MainActivity : AppCompatActivity() {
                 DiagnosisDebugSnapshot(
                     sourceType = DebugDiagnosisSource.BUNDLED_SAMPLE,
                     sourceLabel = "Source: Bundled Sample",
-                    fileLabel = "No bundled debug sample found.",
                     previewBitmap = null,
                     details = "No bundled debug sample found."
                 )

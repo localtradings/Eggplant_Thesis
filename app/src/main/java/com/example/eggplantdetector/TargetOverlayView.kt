@@ -46,20 +46,23 @@ class TargetOverlayView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val target = when (val state = targetState) {
+        val (plantTarget, isLost) = when (val state = targetState) {
             is SelectedTargetState.Selected -> state.target to false
-            is SelectedTargetState.Lost -> state.previousTarget to true
-            SelectedTargetState.None -> null
-        } ?: return
+            is SelectedTargetState.Lost -> {
+                val prev = state.previousTarget ?: return
+                prev to true
+            }
+            SelectedTargetState.None -> return
+        }
 
         val rect = PreviewTargetMapper.viewRectFor(
-            box = target.first.box,
+            box = plantTarget.box,
             viewWidth = width.toFloat(),
             viewHeight = height.toFloat()
         )
         val cornerRadius = 22f
-        val fillPaint = if (target.second) lostFillPaint else selectedFillPaint
-        val strokePaint = if (target.second) lostStrokePaint else selectedStrokePaint
+        val fillPaint = if (isLost) lostFillPaint else selectedFillPaint
+        val strokePaint = if (isLost) lostStrokePaint else selectedStrokePaint
         canvas.drawRoundRect(rect, cornerRadius, cornerRadius, fillPaint)
         canvas.drawRoundRect(rect, cornerRadius, cornerRadius, strokePaint)
     }
