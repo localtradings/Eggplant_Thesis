@@ -43,6 +43,7 @@ final class MainViewController: UIViewController {
     private var liveStabilizer = LiveResultStabilizer()
     private var liveInferenceInFlight = false
     private var currentLiveCardState: LiveCardState?
+    private var currentPhotoSummary: SavedDiagnosisSummary?
     private let diagnosisSummaryStore = try? DiagnosisSummaryStore()
     private var latestCameraDebugSnapshot: DiagnosisDebugSnapshot?
     private var latestBundledDebugSnapshot: DiagnosisDebugSnapshot?
@@ -172,6 +173,7 @@ final class MainViewController: UIViewController {
         dismissButton.configuration?.image = UIImage(systemName: "xmark")
         dismissButton.configuration?.baseForegroundColor = .white
         dismissButton.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        dismissButton.accessibilityLabel = "Close scanner"
         dismissButton.isHidden = !showsDismissButton
         dismissButton.addTarget(self, action: #selector(dismissPressed), for: .touchUpInside)
 
@@ -327,20 +329,29 @@ final class MainViewController: UIViewController {
     }
 
     @objc private func saveSummaryPressed() {
-        guard captureMode == .live else { return }
-        guard case let .selected(target) = selectedTargetController.state else { return }
-        guard let liveCardState = currentLiveCardState,
-              let summary = makeSavedDiagnosisSummary(from: liveCardState, target: target) else {
-            showModeHelper("Wait for a stable live result before saving.")
-            return
-        }
         guard let diagnosisSummaryStore else {
             showModeHelper("Local summary storage is unavailable.")
             return
         }
 
+        let summary: SavedDiagnosisSummary?
+        if captureMode == .live {
+            guard case let .selected(target) = selectedTargetController.state else { return }
+            guard let liveCardState = currentLiveCardState else {
+                showModeHelper("Wait for a stable live result before saving.")
+                return
+            }
+            summary = makeSavedDiagnosisSummary(from: liveCardState, target: target)
+        } else {
+            summary = currentPhotoSummary
+        }
+
+        guard let summary else {
+            showModeHelper(captureMode == .live ? "Wait for a stable live result before saving." : "Capture a confirmed photo result before saving.")
+            return
+        }
+
         do {
-            // Future export hook: attach annotated image export from the same stable live result if needed later.
             let savedURL = try diagnosisSummaryStore.save(summary)
             showModeHelper("Saved summary to \(savedURL.lastPathComponent).")
         } catch {
@@ -499,6 +510,7 @@ final class MainViewController: UIViewController {
     private func resetFrozenState() {
         isFrozen = false
         pendingPhotoCapture = false
+        currentPhotoSummary = nil
         frozenImageView.image = nil
         frozenImageView.isHidden = true
         frozenImageView.alpha = 0
@@ -719,7 +731,7 @@ final class MainViewController: UIViewController {
         overlayBottomToDockConstraint?.isActive = true
         overlayBottomToSafeAreaConstraint?.isActive = false
         captureButton.isHidden = isFrozen
-        saveSummaryButton.isHidden = true
+        saveSummaryButton.isHidden = currentPhotoSummary == nil
         retakeButton.isHidden = false
     }
 
@@ -871,8 +883,13 @@ extension MainViewController: CameraServiceDelegate {
                     let photoCrop = target.box.expanded(scale: TargetSelectionContract.photoDiagnosisCropExpansion)
                     let prepared = try classifier.prepareFrame(pixelBuffer: pixelBuffer, crop: photoCrop)
                     let result = try classifier.classify(preparedFrame: prepared)
-                    // Future treatment hook: attach post-diagnosis treatment guidance after the selected-target diagnosis result is finalized.
                     let state = DiagnosisRules.photoDiagnosis(assessment: prepared.assessment, result: result)
+                    let summary = makeSavedDiagnosisSummary(
+                        from: state,
+                        target: target,
+                        mode: .photo,
+                        assessment: prepared.assessment
+                    )
                     self.publishCameraDebugSnapshot(self.buildDebugSnapshot(
                         sourceType: .selectedTarget,
                         sourceLabel: "Source: Camera Selected Crop",
@@ -896,11 +913,13 @@ extension MainViewController: CameraServiceDelegate {
                         UIView.animate(withDuration: 0.2) {
                             self?.frozenImageView.alpha = frozenPreviewImage == nil ? 0 : 1
                         }
+                        self?.currentPhotoSummary = summary
                         self?.render(state: state)
                     }
                 } catch {
                     DispatchQueue.main.async { [weak self] in
                         self?.isFrozen = false
+                        self?.currentPhotoSummary = nil
                         self?.render(state: .needsRetake(reason: .frameSingleLeaf))
                     }
                 }
@@ -945,6 +964,17 @@ extension MainViewController: CameraServiceDelegate {
                 let prepared = try classifier.prepareFrame(pixelBuffer: pixelBuffer)
                 let result = try classifier.classify(preparedFrame: prepared)
                 let state = DiagnosisRules.photoDiagnosis(assessment: prepared.assessment, result: result)
+                let summary: SavedDiagnosisSummary?
+                if case let .selected(target) = selectedTargetController.state {
+                    summary = makeSavedDiagnosisSummary(
+                        from: state,
+                        target: target,
+                        mode: .photo,
+                        assessment: prepared.assessment
+                    )
+                } else {
+                    summary = nil
+                }
                 NSLog(
                     "EggplantDiagnosis mode=photo brightness=%.3f leafRatio=%.3f centerLeafRatio=%.3f state=%@",
                     prepared.assessment.meanBrightness,
@@ -958,11 +988,13 @@ extension MainViewController: CameraServiceDelegate {
                     UIView.animate(withDuration: 0.2) {
                         self?.frozenImageView.alpha = 1
                     }
+                    self?.currentPhotoSummary = summary
                     self?.render(state: state)
                 }
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     self?.isFrozen = false
+                    self?.currentPhotoSummary = nil
                     self?.render(state: .needsRetake(reason: .frameSingleLeaf))
                 }
             }
@@ -985,13 +1017,23 @@ extension MainViewController: CameraServiceDelegate {
     }
 
     func cameraService(_ service: CameraService, didFail error: Error) {
+        NSLog("EggplantCamera error=%@", error.localizedDescription)
         if TargetSelectionContract.isPhase1ManualTargetingEnabled {
             clearPinnedBundledDebug(reason: .cameraReset)
             resetLiveAnalysisState()
             clearCameraDebugSnapshot()
             selectedTargetController.resetTarget(reason: .cameraInterrupted)
             DispatchQueue.main.async { [weak self] in
-                self?.renderTargetState()
+                self?.targetOverlayView.targetState = self?.selectedTargetController.state ?? .none
+                self?.applyNoTargetActionLayout()
+                self?.overlayView.render(bundledDebugPresentation: BundledDebugPresentation(
+                    eyebrow: "CAMERA",
+                    title: "Camera unavailable",
+                    subtitle: error.localizedDescription,
+                    details: "Live scanning needs an available iPhone camera. The iOS Simulator can show a black preview when no back camera is available."
+                ))
+                self?.showModeHelper("Run on a real iPhone for live camera scanning.")
+                self?.view.layoutIfNeeded()
             }
             return
         }
