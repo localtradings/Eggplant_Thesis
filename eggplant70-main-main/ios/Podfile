@@ -1,7 +1,0 @@
-platform :ios, '15.0'
-project 'EggplantDetector.xcodeproj'
-
-target 'EggplantDetector' do
-  use_frameworks!
-  pod 'TensorFlowLiteSwift', '2.17.0'
-end

@@ -1,6 +1,0 @@
-healthy
-leaf_spot
-mosaic
-pest
-white_mold
-wilt
