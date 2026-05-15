@@ -239,16 +239,16 @@ final class HomeViewController: UIViewController {
         featuresGrid.spacing = 8
 
         let topRow = UIStackView(arrangedSubviews: [
-            makeFeatureTile(symbol: "text.book.closed.fill", title: "Disease Guide", selector: #selector(comingSoonPressed(_:))),
-            makeFeatureTile(symbol: "clock.arrow.trianglehead.counterclockwise.rotate.90", title: "Scan History", selector: #selector(comingSoonPressed(_:)))
+            makeFeatureTile(symbol: "text.book.closed.fill", title: "Disease Guide", selector: #selector(diseaseGuidePressed)),
+            makeFeatureTile(symbol: "clock.arrow.trianglehead.counterclockwise.rotate.90", title: "Scan History", selector: #selector(historyPressed))
         ])
         topRow.axis = .horizontal
         topRow.spacing = 10
         topRow.distribution = .fillEqually
 
         let bottomRow = UIStackView(arrangedSubviews: [
-            makeFeatureTile(symbol: "questionmark.bubble.fill", title: "How to Use", selector: #selector(comingSoonPressed(_:))),
-            makeFeatureTile(symbol: "info.circle.fill", title: "About App", selector: #selector(comingSoonPressed(_:)))
+            makeFeatureTile(symbol: "questionmark.bubble.fill", title: "How to Use", selector: #selector(howToUsePressed)),
+            makeFeatureTile(symbol: "info.circle.fill", title: "About App", selector: #selector(aboutPressed))
         ])
         bottomRow.axis = .horizontal
         bottomRow.spacing = 10
@@ -277,9 +277,9 @@ final class HomeViewController: UIViewController {
         bottomBar.layer.shadowOffset = CGSize(width: 0, height: -4)
 
         let homeItem = makeBottomItem(symbol: "house.fill", title: "Home", active: true, selector: #selector(homePressed))
-        let libraryItem = makeBottomItem(symbol: "book.closed.fill", title: "Library", active: false, selector: #selector(comingSoonPressed(_:)))
-        let historyItem = makeBottomItem(symbol: "clock.fill", title: "History", active: false, selector: #selector(comingSoonPressed(_:)))
-        let aboutItem = makeBottomItem(symbol: "info.circle.fill", title: "About", active: false, selector: #selector(comingSoonPressed(_:)))
+        let libraryItem = makeBottomItem(symbol: "book.closed.fill", title: "Library", active: false, selector: #selector(diseaseGuidePressed))
+        let historyItem = makeBottomItem(symbol: "clock.fill", title: "History", active: false, selector: #selector(historyPressed))
+        let aboutItem = makeBottomItem(symbol: "info.circle.fill", title: "About", active: false, selector: #selector(aboutPressed))
 
         scanButton.translatesAutoresizingMaskIntoConstraints = false
         scanButton.tintColor = .white
@@ -427,16 +427,19 @@ final class HomeViewController: UIViewController {
 
         let iconWrap = UIView()
         iconWrap.translatesAutoresizingMaskIntoConstraints = false
+        iconWrap.isUserInteractionEnabled = false
         iconWrap.backgroundColor = UIColor(red: 0.92, green: 0.92, blue: 0.84, alpha: 1)
         iconWrap.layer.cornerRadius = 14
 
         let icon = UIImageView(image: UIImage(systemName: symbol))
         icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
         icon.tintColor = UIColor(red: 0.39, green: 0.58, blue: 0.33, alpha: 1)
         icon.contentMode = .scaleAspectFit
 
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.isUserInteractionEnabled = false
         label.text = title
         label.font = roundedFont(size: 13.5, weight: .medium)
         label.textColor = UIColor(red: 0.18, green: 0.20, blue: 0.18, alpha: 1)
@@ -472,17 +475,20 @@ final class HomeViewController: UIViewController {
             ? UIColor(red: 0.39, green: 0.58, blue: 0.33, alpha: 1)
             : UIColor(red: 0.32, green: 0.34, blue: 0.31, alpha: 1)
         button.tintColor = tint
+        button.accessibilityLabel = title
         button.configuration = .plain()
         button.configuration?.baseForegroundColor = tint
         button.configuration?.contentInsets = .zero
 
         let icon = UIImageView(image: UIImage(systemName: symbol))
         icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
         icon.tintColor = tint
         icon.contentMode = .scaleAspectFit
 
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.isUserInteractionEnabled = false
         label.text = title
         label.font = roundedFont(size: 9.5, weight: active ? .semibold : .medium)
         label.textColor = tint
@@ -493,6 +499,7 @@ final class HomeViewController: UIViewController {
 
         let stack = UIStackView(arrangedSubviews: [icon, label])
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.isUserInteractionEnabled = false
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 4
@@ -521,15 +528,31 @@ final class HomeViewController: UIViewController {
         scrollView.setContentOffset(.zero, animated: true)
     }
 
-    @objc private func comingSoonPressed(_ sender: UIButton) {
-        let alert = UIAlertController(title: "Coming soon", message: "\(sender.accessibilityLabel ?? "This section") is not wired yet.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+    @objc private func diseaseGuidePressed() {
+        presentContent(DiseaseGuideViewController())
+    }
+
+    @objc private func historyPressed() {
+        presentContent(ScanHistoryViewController())
+    }
+
+    @objc private func howToUsePressed() {
+        presentContent(HowToUseViewController())
+    }
+
+    @objc private func aboutPressed() {
+        presentContent(AboutAppViewController())
     }
 
     private func presentScanner(mode: CaptureMode) {
         let scanner = MainViewController(initialCaptureMode: mode, showsDismissButton: true)
         scanner.modalPresentationStyle = .fullScreen
         present(scanner, animated: true)
+    }
+
+    private func presentContent(_ viewController: UIViewController) {
+        let navigationController = UINavigationController(rootViewController: viewController)
+        navigationController.modalPresentationStyle = .fullScreen
+        present(navigationController, animated: true)
     }
 }
