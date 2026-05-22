@@ -25,7 +25,33 @@ import com.google.android.material.button.MaterialButtonToggleGroup
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+//For database
+import androidx.lifecycle.lifecycleScope
+import androidx.privacysandbox.tools.core.generator.build
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.room.Room
+
 class MainActivity : AppCompatActivity() {
+
+    // Database
+    private lateinit var database: AppDatabase
+    private lateinit var diseaseDao: DiseaseDao
+
+    //Connect system to database on the phone's storage
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Database Initialization
+        database = androidx.room.Room.databaseBuilder(
+            applicationContext,
+            AppDatabase::class.java,
+            "eggplant_database" //name of database
+        ).build()
+
+        diseaseDao = database.appDao()
+    }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService

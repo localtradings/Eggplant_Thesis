@@ -21,11 +21,8 @@ data class Scan(
     val scanID: Int = 0,
 
     val parentSessionID: String, // Links back to the UUID in ScanSession
-
-    val imagePath: String, // The storage location of the eggplant leaf photo
-
+    var imagePath: String, // The storage location of the eggplant leaf photo
     val dateTimeCaptured: Long = System.currentTimeMillis(),
-
-    var confidenceScore: Float //Made it var for now, since in live capture,
-                                // confidenceScore can change easily
+    var confidenceScore: Float /*Made it var for now, since in live capture,
+                                confidenceScore can change easily */
 )

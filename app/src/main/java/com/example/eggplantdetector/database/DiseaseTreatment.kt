@@ -28,6 +28,9 @@ import androidx.room.Index
 
 
 data class DiseaseTreatment(
+    //Foreign keys
     val diseaseID: Int,
-    val treatmentID: Int
+    val treatmentID: Int,
+    val applicationFrequency: String, // This attribute shows how often the treatment is applied
+    val effectivenessNotes: String     // Shows effectiveness of the treatment
 )

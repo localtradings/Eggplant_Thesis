@@ -7,8 +7,9 @@ import androidx.room.PrimaryKey
 data class Treatment (
     @PrimaryKey(autoGenerate = true)
     val treatmentID: Int = 0,
-    val treatmentName: String,
+    val treatmentTitle: String,
     val treatmentProcedures: String,
+    val treatmentType: String,
     val dateAdded: Long = System.currentTimeMillis(),
     var dateUpdated: Long = System.currentTimeMillis()
 )

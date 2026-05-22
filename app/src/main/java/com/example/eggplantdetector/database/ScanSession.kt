@@ -7,8 +7,8 @@ import java.util.UUID
 @Entity(tableName = "scan_sessions")
 data class ScanSession (
     @PrimaryKey
-    val sessionID: String = UUID.randomUUID().toString(),
+    val sessionID: String = UUID.randomUUID().toString(), //Gives a unique ID for each session
     val startingTimestamp: Long = System.currentTimeMillis(),
-    val endingTimestamp: Long = 0L,
+    var endingTimestamp: Long = 0L,
     var totalLeaves: Int = 0,
 )
