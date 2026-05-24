@@ -38,13 +38,4 @@ interface AppDao {
     // Junction Table for Disease Treatment entity
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertDiseaseTreatment(crossRef: DiseaseTreatment)
-
-    // Join Query to get treatments for a disease
-    @Transaction
-    @Query(value = """
-        SELECT * FROM treatments 
-        INNER JOIN disease_treatments ON treatments.treatmentID = disease_treatments.treatmentID 
-        WHERE disease_treatments.diseaseID = :diseaseId
-    """)
-    suspend fun getTreatmentsForDisease(diseaseId: Int): List<Treatment>
 }

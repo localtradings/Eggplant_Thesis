@@ -9,7 +9,6 @@ import androidx.room.RoomDatabase
     entities = [
         Disease::class,
         Treatment::class,
-        DiseaseTreatment::class,
         ScanSession::class,
         Scan::class
     ],
@@ -25,9 +24,9 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         fun getDatabase(context: Context): AppDatabase {
-            // if instance of the database is created, returns the database
-            // If not then creates the database
-            return INSTANCE ?: synchronized( lock = this) {
+            /* if instance of the database is created, returns the database
+             If not then creates the database */
+            return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
